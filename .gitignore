@@ -1,0 +1,19 @@
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+.env
+.internal/
+
+# 权重不进仓（Release 或明早本地下）
+weights/*.pt
+weights/*.onnx
+
+# 测试素材
+data/*
+!data/.gitkeep
+
+# 输出截图 / 临时帧
+output/
+*.fifo

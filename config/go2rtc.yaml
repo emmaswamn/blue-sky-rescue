@@ -1,0 +1,6 @@
+# go2rtc 占位配置 · 明早把 test 换成真 RTSP 或本地 mp4
+# Web UI: http://localhost:1984/
+
+streams:
+  test:
+    - ffmpeg:data/sample.mp4#video=h264

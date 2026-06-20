@@ -1,0 +1,36 @@
+# blue-sky-rescue · 双服务：go2rtc（官方镜像）+ processor（自研 Python）
+#
+# 明早先拉镜像：
+#   docker compose pull go2rtc
+# processor 有代码后再：
+#   docker compose build processor
+
+services:
+  go2rtc:
+    image: alexxit/go2rtc:1.9.14
+    container_name: bsr-go2rtc
+    ports:
+      - "1984:1984"   # Web UI + API
+      - "8554:8554"   # RTSP
+    volumes:
+      - ./config/go2rtc.yaml:/config/go2rtc.yaml:ro
+    restart: unless-stopped
+
+  processor:
+    build:
+      context: .
+      dockerfile: Dockerfile.processor
+    container_name: bsr-processor
+    volumes:
+      - ./app:/app/app:ro
+      - ./weights:/weights:ro
+      - ./data:/data:ro
+    environment:
+      - INPUT_STREAM=rtsp://go2rtc:8554/test
+      - OUTPUT_STREAM=rtsp://go2rtc:8554/test_blue
+      - BLUE_STRENGTH=1.25
+    depends_on:
+      - go2rtc
+    restart: unless-stopped
+    profiles:
+      - full

@@ -1,0 +1,15 @@
+# blue-sky-rescue · Python 处理服务（processor）
+# Python 3.11+  recommended
+
+# --- 核心（Phase 1 明早先装这些）---
+ultralytics>=8.4,<9
+opencv-python-headless>=4.8,<5
+numpy>=1.24,<3
+PyYAML>=6.0
+
+# --- 接流联调（Phase 3 挂 go2rtc RTSP 时再装，默认注释）---
+# av>=12.0.0
+# ffmpeg-python>=0.2.0
+
+# --- 本地调试窗口（需要 cv2.imshow 时，把 headless 换成下面这行）---
+# opencv-python>=4.8,<5
