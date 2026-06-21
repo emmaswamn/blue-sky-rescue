@@ -11,6 +11,8 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from sky_horizon import HORIZON_GAP_ROWS, allow_from_mask_a_columns, y_hor_global_from_rows, y_hor_per_column
+
 FRAME = Path("output/sky-filter/frame_raw.jpg")
 MASK_A = Path("output/sky-filter/mask_hsv_a.png")
 OUT_B = Path("output/sky-filter/mask_hsv_b.png")
@@ -29,27 +31,6 @@ CLOSE_B_ITER = 1
 EXCLUDE_RIGHT_ISLAND = False
 EXCLUDE_Y_FROM = 0.40
 EXCLUDE_X_FROM = 0.72
-
-
-def allow_from_mask_a_columns(mask_a: np.ndarray, margin: int, smooth: int) -> np.ndarray:
-    h, w = mask_a.shape
-    y_hor = np.full(w, -1, dtype=np.int32)
-    for x in range(w):
-        ys = np.where(mask_a[:, x] > 0)[0]
-        if len(ys) > 0:
-            y_hor[x] = int(ys.max())
-
-    if (y_hor < 0).any():
-        valid = y_hor[y_hor >= 0]
-        fallback = int(np.median(valid)) if len(valid) else int(h * 0.5)
-        y_hor[y_hor < 0] = fallback
-
-    if smooth > 1:
-        kernel = np.ones(smooth, dtype=np.float64) / smooth
-        y_hor = np.round(np.convolve(y_hor.astype(np.float64), kernel, mode="same")).astype(np.int32)
-
-    y_idx = np.arange(h, dtype=np.int32)[:, None]
-    return ((y_idx <= y_hor[None, :] + margin).astype(np.uint8) * 255)
 
 
 def allow_from_mask_a_bottom_cc(mask_a: np.ndarray) -> np.ndarray:
@@ -80,15 +61,15 @@ def main() -> None:
         raise SystemExit(f"mask_a 尺寸 {mask_a.shape[:2]} 与 frame {h,w} 不一致")
 
     if HORIZON_MODE == "mask_a":
-        allow = allow_from_mask_a_columns(mask_a, HORIZON_MARGIN, Y_HOR_SMOOTH)
-        y_hor = np.full(w, -1, dtype=np.int32)
-        for x in range(w):
-            ys = np.where(mask_a[:, x] > 0)[0]
-            if len(ys) > 0:
-                y_hor[x] = int(ys.max())
+        y_global = y_hor_global_from_rows(mask_a, gap_rows=HORIZON_GAP_ROWS)
+        allow = allow_from_mask_a_columns(
+            mask_a, HORIZON_MARGIN, Y_HOR_SMOOTH, gap_rows=HORIZON_GAP_ROWS
+        )
+        y_hor = y_hor_per_column(mask_a, y_global + HORIZON_MARGIN, Y_HOR_SMOOTH)
         y_min, y_max = int(y_hor[y_hor >= 0].min()), int(y_hor.max())
         print(
-            f"B′ column: y_hor≈{y_min}..{y_max}, margin={HORIZON_MARGIN}, smooth={Y_HOR_SMOOTH}"
+            f"B′ column: y_hor≈{y_min}..{y_max}, y_global={y_global}, "
+            f"gap={HORIZON_GAP_ROWS}, margin={HORIZON_MARGIN}, smooth={Y_HOR_SMOOTH}"
         )
     elif HORIZON_MODE == "bottom_cc":
         allow = allow_from_mask_a_bottom_cc(mask_a)

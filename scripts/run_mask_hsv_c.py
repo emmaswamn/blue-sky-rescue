@@ -10,6 +10,8 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from sky_horizon import HORIZON_GAP_ROWS, allow_from_mask_a_columns
+
 FRAME = Path("output/sky-filter/frame_raw.jpg")
 MASK_A = Path("output/sky-filter/mask_hsv_a.png")
 THRESH = Path("output/sky-filter/hsv_threshold_c.json")
@@ -29,24 +31,6 @@ Y_HOR_SMOOTH = 7
 INTERSECT_HOLES = True   # 只在 mask_a 为黑处（洞里补云）
 CLOSE_C_ITER = 1
 WRITE_THRESH_FROM_SAMPLES = False  # True: 用上面 CLOUD_SAMPLES 覆盖写 JSON
-
-
-def allow_from_mask_a_columns(mask_a: np.ndarray, margin: int, smooth: int) -> np.ndarray:
-    h, w = mask_a.shape
-    y_hor = np.full(w, -1, dtype=np.int32)
-    for x in range(w):
-        ys = np.where(mask_a[:, x] > 0)[0]
-        if len(ys) > 0:
-            y_hor[x] = int(ys.max())
-    if (y_hor < 0).any():
-        valid = y_hor[y_hor >= 0]
-        fallback = int(np.median(valid)) if len(valid) else int(h * 0.5)
-        y_hor[y_hor < 0] = fallback
-    if smooth > 1:
-        kernel = np.ones(smooth, dtype=np.float64) / smooth
-        y_hor = np.round(np.convolve(y_hor.astype(np.float64), kernel, mode="same")).astype(np.int32)
-    y_idx = np.arange(h, dtype=np.int32)[:, None]
-    return ((y_idx <= y_hor[None, :] + margin).astype(np.uint8) * 255)
 
 
 def compute_cloud_lower_upper(samples: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -95,7 +79,9 @@ def main() -> None:
         upper = np.array(cfg["upper"], dtype=np.uint8)
         print("read", THRESH, "lower", lower.tolist(), "upper", upper.tolist())
 
-    allow = allow_from_mask_a_columns(mask_a, HORIZON_MARGIN, Y_HOR_SMOOTH)
+    allow = allow_from_mask_a_columns(
+        mask_a, HORIZON_MARGIN, Y_HOR_SMOOTH, gap_rows=HORIZON_GAP_ROWS
+    )
     mask_c = cv2.inRange(hsv, lower, upper)
     mask_c = cv2.bitwise_and(mask_c, allow)
     if INTERSECT_HOLES:

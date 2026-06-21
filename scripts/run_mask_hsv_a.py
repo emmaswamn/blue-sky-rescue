@@ -6,12 +6,15 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from sky_horizon import HORIZON_GAP_ROWS, trim_mask_a_by_horizon
+
 FRAME = Path("output/sky-filter/frame_raw.jpg")
 THRESH = Path("output/sky-filter/hsv_threshold_a.json")
 EXCLUDE_JSON = Path("output/sky-filter/mask_exclude.json")
 OUT_A = Path("output/sky-filter/mask_hsv_a.png")  # 勿用 jpg，压缩会让 exclude 边缘漏黄
 OUT_A_OVERLAY = Path("output/sky-filter/mask_hsv_a_overlay.jpg")
 CLAMP_H_LOWER = 92
+Y_HOR_SMOOTH = 7
 
 
 def load_exclude_rects(path: Path) -> list[tuple[int, int, int, int]]:
@@ -67,6 +70,11 @@ def main() -> None:
         mask[y1:y2, x1:x2] = 0
     if rects:
         print("A′ manual exclude:", len(rects), "rect(s) from", EXCLUDE_JSON)
+
+    mask = trim_mask_a_by_horizon(
+        mask, margin=0, smooth=Y_HOR_SMOOTH, gap_rows=HORIZON_GAP_ROWS
+    )
+    print(f"A″ horizon trim: gap_rows={HORIZON_GAP_ROWS}, smooth={Y_HOR_SMOOTH}")
 
     OUT_A.parent.mkdir(parents=True, exist_ok=True)
     cv2.imwrite(str(OUT_A), mask)
