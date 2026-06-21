@@ -1,6 +1,7 @@
-# go2rtc 占位配置 · 明早把 test 换成真 RTSP 或本地 mp4
+# go2rtc · Step 6 B2 原片伪流
 # Web UI: http://localhost:1984/
+# RTSP:   rtsp://127.0.0.1:8554/test
 
 streams:
   test:
-    - ffmpeg:data/sample.mp4#video=h264
+    - ffmpeg:/data/sky-filter/pexels-15982565.mp4#video=h264#loop
