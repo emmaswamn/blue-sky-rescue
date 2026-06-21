@@ -16,39 +16,17 @@ import cv2
 import numpy as np
 from ultralytics import YOLO
 
+from sky_filter_core import (
+    MASK_BLUR_SIGMA,
+    apply_unified_sky_filter,
+    extend_sky_mask_to_top,
+    soft_mask,
+)
+
 WEIGHTS = Path("weights/sky-seg.pt")
 VIDEO = Path("data/sky-filter/pexels-15982565.mp4")
 OUT_DIR = Path("output/sky-filter")
 SKY_CLASS = 0
-
-MASK_BLUR_SIGMA = 3
-HUE_SHIFT = -8
-SAT_SCALE = 1.25
-VAL_SCALE = 1.0
-
-
-def soft_mask(mask_u8: np.ndarray, sigma: float) -> np.ndarray:
-    m = mask_u8.astype(np.float32) / 255.0
-    if sigma > 0:
-        m = cv2.GaussianBlur(m, (0, 0), sigma)
-    return np.clip(m, 0.0, 1.0)
-
-
-def apply_unified_sky_filter(
-    bgr: np.ndarray,
-    mask: np.ndarray,
-    hue_shift: float = HUE_SHIFT,
-    sat_scale: float = SAT_SCALE,
-    val_scale: float = VAL_SCALE,
-) -> np.ndarray:
-    hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV).astype(np.float32)
-    hsv[..., 0] = (hsv[..., 0] + hue_shift) % 180
-    hsv[..., 1] = np.clip(hsv[..., 1] * sat_scale, 0, 255)
-    hsv[..., 2] = np.clip(hsv[..., 2] * val_scale, 0, 255)
-    boosted = cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2BGR)
-    m3 = mask[..., None]
-    out = bgr.astype(np.float32) * (1.0 - m3) + boosted.astype(np.float32) * m3
-    return np.clip(out, 0, 255).astype(np.uint8)
 
 
 def yolo_sky_mask(model: YOLO, frame: np.ndarray, sky_class: int = SKY_CLASS) -> np.ndarray:
@@ -63,7 +41,7 @@ def yolo_sky_mask(model: YOLO, frame: np.ndarray, sky_class: int = SKY_CLASS) ->
             m = seg.cpu().numpy()
             m = cv2.resize(m, (w, h), interpolation=cv2.INTER_LINEAR)
             mask = np.maximum(mask, (m > 0.5).astype(np.uint8) * 255)
-    return mask
+    return extend_sky_mask_to_top(mask)
 
 
 def main() -> None:

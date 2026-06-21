@@ -9,6 +9,8 @@ import cv2
 import numpy as np
 from ultralytics import YOLO
 
+from sky_filter_core import extend_sky_mask_to_top
+
 WEIGHTS = Path("weights/sky-seg.pt")
 FRAME = Path("output/sky-filter/frame_raw.jpg")
 OUT = Path("output/sky-filter/mask_yolo.png")
@@ -35,6 +37,7 @@ def main() -> None:
             m = cv2.resize(m, (w, h), interpolation=cv2.INTER_LINEAR)
             mask = np.maximum(mask, (m > 0.5).astype(np.uint8) * 255)
 
+    mask = extend_sky_mask_to_top(mask)
     OUT.parent.mkdir(parents=True, exist_ok=True)
     cv2.imwrite(str(OUT), mask)
     print("saved", OUT, "sky px", int(np.count_nonzero(mask)))
