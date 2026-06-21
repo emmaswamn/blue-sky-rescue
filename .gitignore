@@ -7,8 +7,18 @@ __pycache__/
 .internal/
 
 # 权重不进仓（Release 或明早本地下）
-weights/*.pt
-weights/*.onnx
+weights/*
+!weights/.gitkeep
+
+# Ultralytics 预训练 / 自训 .pt（根目录或 runs/ 里下的）
+*.pt
+*.onnx
+
+# YOLO 训练产出
+runs/
+
+# 数据集扫描缓存
+*.cache
 
 # 测试素材
 data/*
