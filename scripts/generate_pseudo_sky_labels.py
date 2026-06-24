@@ -18,7 +18,14 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from sky_horizon import HORIZON_GAP_ROWS, allow_from_mask_a_columns, trim_mask_a_by_horizon
+from sky_horizon import (
+    HORIZON_GAP_ROWS,
+    ROI_MARGIN,
+    allow_from_mask_a_columns,
+    apply_roi_y_cap,
+    trim_mask_a_by_horizon,
+    y_roi_cap_bottom_up_groups,
+)
 
 THRESH = Path("output/sky-filter/hsv_threshold_a.json")
 EXCLUDE_JSON = Path("output/sky-filter/mask_exclude.json")
@@ -27,7 +34,7 @@ LABELS_DIR = Path("data/sky-seg/labels/train")
 OVERLAY_DIR = Path("output/sky-seg-pseudo")
 
 CLAMP_H_LOWER = 92
-ROI_HEIGHT = 0.65
+ROI_MODE = "bottom_up"  # bottom_up | fixed
 HORIZON_MARGIN = 5
 Y_HOR_SMOOTH = 7
 LOW_SAT_MAX_S = 28
@@ -52,9 +59,13 @@ def compute_mask_a(frame: np.ndarray, lower: np.ndarray, upper: np.ndarray) -> n
     h, w = frame.shape[:2]
     hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
     mask = cv2.inRange(hsv, lower, upper)
-    roi = np.zeros((h, w), np.uint8)
-    roi[: int(h * ROI_HEIGHT), :] = 255
-    mask = cv2.bitwise_and(mask, roi)
+    if ROI_MODE == "bottom_up":
+        y_cap, _, _ = y_roi_cap_bottom_up_groups(mask, margin=ROI_MARGIN, gap_rows=HORIZON_GAP_ROWS)
+        mask = apply_roi_y_cap(mask, y_cap)
+    else:
+        roi = np.zeros((h, w), np.uint8)
+        roi[: int(h * 0.65), :] = 255
+        mask = cv2.bitwise_and(mask, roi)
     k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, k, 2)
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, k, 2)

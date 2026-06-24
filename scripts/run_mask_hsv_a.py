@@ -1,12 +1,20 @@
 #!/usr/bin/env python3
-"""§2.8.2 A 轮：inRange → morph → A′ 手动 exclude → mask_hsv_a.png"""
+"""§2.8.2 A 轮：inRange → ROI → morph → A′ exclude → A″ → mask_hsv_a.png"""
+import argparse
 import json
 from pathlib import Path
 
 import cv2
 import numpy as np
 
-from sky_horizon import HORIZON_GAP_ROWS, trim_mask_a_by_horizon
+from sky_horizon import (
+    HORIZON_GAP_ROWS,
+    ROI_FALLBACK_FRAC,
+    ROI_MARGIN,
+    apply_roi_y_cap,
+    trim_mask_a_by_horizon,
+    y_roi_cap_bottom_up_groups,
+)
 
 FRAME = Path("output/sky-filter/frame_raw.jpg")
 THRESH = Path("output/sky-filter/hsv_threshold_a.json")
@@ -15,6 +23,7 @@ OUT_A = Path("output/sky-filter/mask_hsv_a.png")  # 勿用 jpg，压缩会让 ex
 OUT_A_OVERLAY = Path("output/sky-filter/mask_hsv_a_overlay.jpg")
 CLAMP_H_LOWER = 92
 Y_HOR_SMOOTH = 7
+ROI_MODE = "bottom_up"  # bottom_up | fixed | full
 
 
 def load_exclude_rects(path: Path) -> list[tuple[int, int, int, int]]:
@@ -41,7 +50,34 @@ def load_exclude_rects(path: Path) -> list[tuple[int, int, int, int]]:
     return rects
 
 
+def apply_roi(mask: np.ndarray, h: int, mode: str) -> tuple[np.ndarray, int]:
+    if mode == "full":
+        print("ROI: full frame (no cap)")
+        return mask, h - 1
+    if mode == "fixed":
+        y_cap = int(h * ROI_FALLBACK_FRAC)
+        print(f"ROI fixed: y_cap={y_cap} ({ROI_FALLBACK_FRAC:.0%} of h={h})")
+        return apply_roi_y_cap(mask, y_cap), y_cap
+    if mode == "bottom_up":
+        y_cap, groups, fallback = y_roi_cap_bottom_up_groups(
+            mask, margin=ROI_MARGIN, gap_rows=HORIZON_GAP_ROWS
+        )
+        tag = "fallback" if fallback else f"groups={groups}"
+        print(f"ROI bottom_up: y_cap={y_cap} ({tag})")
+        return apply_roi_y_cap(mask, y_cap), y_cap
+    raise SystemExit(f"未知 ROI_MODE={mode!r}")
+
+
 def main() -> None:
+    parser = argparse.ArgumentParser(description="A 轮 HSV mask")
+    parser.add_argument(
+        "--roi-mode",
+        choices=("bottom_up", "fixed", "full"),
+        default=ROI_MODE,
+        help="bottom_up=三组底向上(默认); fixed=0.65; full=不裁",
+    )
+    args = parser.parse_args()
+
     cfg = json.loads(THRESH.read_text())
     lower = np.array(cfg["lower"], dtype=np.uint8)
     upper = np.array(cfg["upper"], dtype=np.uint8)
@@ -56,9 +92,7 @@ def main() -> None:
 
     hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
     mask = cv2.inRange(hsv, lower, upper)
-    roi = np.zeros((h, w), np.uint8)
-    roi[: int(h * 0.65), :] = 255
-    mask = cv2.bitwise_and(mask, roi)
+    mask, y_cap = apply_roi(mask, h, args.roi_mode)
     k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, k, 2)
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, k, 2)
