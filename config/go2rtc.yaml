@@ -5,3 +5,5 @@
 streams:
   test:
     - ffmpeg:/data/sky-filter/pexels-15982565.mp4#video=h264#loop
+  # B3：Python ffmpeg 推 rtsp://127.0.0.1:8554/test_blue（ingest）
+  test_blue: []
