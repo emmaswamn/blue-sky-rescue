@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
-"""Step 6 B3 · RTSP 滤镜伪流：go2rtc test → YOLO+滤镜 → 推 test_blue
+"""Step 6 · RTSP 滤镜伪流（HSV 版）：go2rtc test → HSV mask + 滤镜 → 推 test_blue_hsv
 
-前置：docker compose up -d go2rtc（test 原流可播）
+与 run_sky_filter_stream.py（YOLO → test_blue）并排对比，验硬件有限时 HSV 平替效果。
+
+前置：docker compose up -d go2rtc（test 原流可播；yaml 含 test_blue_hsv ingest）
 
 用法:
-  python scripts/run_sky_filter_stream.py
-  python scripts/run_sky_filter_stream.py --input rtsp://127.0.0.1:8554/test --mask-every 5
+  python scripts/run_sky_filter_stream_hsv.py
+  python scripts/run_sky_filter_stream_hsv.py --input rtsp://127.0.0.1:8554/test
 
-浏览器：http://localhost:1984/ → test_blue（WebRTC/MSE）
+浏览器：http://localhost:1984/ → test（原片）· test_blue（YOLO）· test_blue_hsv（本脚本）
 """
 from __future__ import annotations
 
@@ -19,47 +21,22 @@ import time
 from pathlib import Path
 
 import cv2
-import numpy as np
-from ultralytics import YOLO
 
-from sky_filter_core import (
-    MASK_BLUR_SIGMA,
-    apply_unified_sky_filter,
-    extend_sky_mask_to_top,
-    soft_mask,
-)
+from hsv_sky_mask import DEFAULT_EXCLUDE, DEFAULT_THRESH, compute_hsv_sky_mask
+from sky_filter_core import MASK_BLUR_SIGMA, apply_unified_sky_filter, soft_mask
 
-WEIGHTS = Path("weights/sky-seg.pt")
 DEFAULT_IN = "rtsp://127.0.0.1:8554/test"
-DEFAULT_OUT = "rtsp://127.0.0.1:8554/test_blue"
+DEFAULT_OUT = "rtsp://127.0.0.1:8554/test_blue_hsv"
 DEFAULT_OUT_FPS = 25.0
-SKY_CLASS = 0
 
 
 def quiet_ffmpeg_logs() -> None:
-    """OpenCV 读 RTSP 时 libav 会把循环/keyframe 警告打到 stderr，demo 可静音。"""
     os.environ.setdefault("AV_LOG_LEVEL", "error")
     os.environ.setdefault("OPENCV_FFMPEG_DEBUG", "0")
     os.environ.setdefault("OPENCV_LOG_LEVEL", "ERROR")
 
 
-def yolo_sky_mask(model: YOLO, frame: np.ndarray, sky_class: int = SKY_CLASS) -> np.ndarray:
-    h, w = frame.shape[:2]
-    mask = np.zeros((h, w), np.uint8)
-    for r in model(frame, verbose=False):
-        if r.masks is None:
-            continue
-        for seg, cls in zip(r.masks.data, r.boxes.cls):
-            if int(cls) != sky_class:
-                continue
-            m = seg.cpu().numpy()
-            m = cv2.resize(m, (w, h), interpolation=cv2.INTER_LINEAR)
-            mask = np.maximum(mask, (m > 0.5).astype(np.uint8) * 255)
-    return extend_sky_mask_to_top(mask)
-
-
 def open_rtsp(url: str) -> cv2.VideoCapture:
-    # err_detect=ignore_err：go2rtc mp4 循环边界偶发坏帧，解码器可跳过
     os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = (
         "rtsp_transport;tcp|fflags;nobuffer|flags;low_delay|err_detect;ignore_err"
     )
@@ -135,32 +112,39 @@ def ensure_ffmpeg(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Step6 B3 RTSP 读 test → YOLO+滤镜 → 推 test_blue")
+    parser = argparse.ArgumentParser(description="Step6 RTSP 读 test → HSV mask + unified → 推 test_blue_hsv")
     parser.add_argument("--input", default=DEFAULT_IN, help="RTSP 输入（go2rtc test）")
     parser.add_argument("--output", default=DEFAULT_OUT, help="RTSP 推流地址（go2rtc ingest）")
-    parser.add_argument("--weights", type=Path, default=WEIGHTS)
-    parser.add_argument("--mask-every", type=int, default=5)
+    parser.add_argument("--thresh", type=Path, default=DEFAULT_THRESH)
+    parser.add_argument("--exclude", type=Path, default=DEFAULT_EXCLUDE)
     parser.add_argument(
-        "--out-fps",
-        type=float,
-        default=DEFAULT_OUT_FPS,
-        help="推流/ pacing 帧率（默认 25；勿跟源 60fps 走）",
+        "--roi-mode",
+        choices=("bottom_up", "fixed", "full"),
+        default="bottom_up",
+        help="与 run_mask_hsv_a.py 一致",
     )
+    parser.add_argument(
+        "--mask-every",
+        type=int,
+        default=1,
+        help="HSV 便宜，默认每帧算；省 CPU 可加大",
+    )
+    parser.add_argument("--out-fps", type=float, default=DEFAULT_OUT_FPS)
     args = parser.parse_args()
 
     quiet_ffmpeg_logs()
 
     if not shutil.which("ffmpeg"):
         raise SystemExit("需要 ffmpeg（sudo apt install ffmpeg）")
-    if not args.weights.exists():
-        raise SystemExit(f"缺 {args.weights}")
+    if not args.thresh.exists():
+        raise SystemExit(f"缺 {args.thresh} — 先跑 Step 2 取色 / run_mask_hsv_a.py")
 
-    print(f"input  {args.input}")
-    print(f"output {args.output}")
-    print(f"mask-every={args.mask_every}  Ctrl+C 退出")
+    print(f"input   {args.input}")
+    print(f"output  {args.output}")
+    print(f"thresh  {args.thresh}  roi-mode={args.roi_mode}  mask-every={args.mask_every}")
+    print("HSV mask（无 GPU）  Ctrl+C 退出")
 
-    model = YOLO(str(args.weights))
-    last_mask: np.ndarray | None = None
+    last_mask = None
     frame_idx = 0
     ff: subprocess.Popen | None = None
     w = h = 0
@@ -186,7 +170,7 @@ def main() -> None:
         try:
             ff = ensure_ffmpeg(ff, w, h, fps, args.output)
         except Exception as e:
-            print(f"ffmpeg 起不来: {e} — 确认 go2rtc 已 up 且 yaml 含对应 ingest 流名")
+            print(f"ffmpeg 起不来: {e} — 确认 go2rtc 已 restart 且 yaml 含 test_blue_hsv")
             cap.release()
             time.sleep(3)
             ff = None
@@ -206,7 +190,12 @@ def main() -> None:
                 frame = cv2.resize(frame, (w, h))
 
             if frame_idx % args.mask_every == 0 or last_mask is None:
-                last_mask = yolo_sky_mask(model, frame)
+                last_mask = compute_hsv_sky_mask(
+                    frame,
+                    thresh_path=args.thresh,
+                    exclude_path=args.exclude,
+                    roi_mode=args.roi_mode,
+                )
             m = soft_mask(last_mask, MASK_BLUR_SIGMA)
             out = apply_unified_sky_filter(frame, m)
 
