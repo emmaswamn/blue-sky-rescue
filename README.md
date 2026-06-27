@@ -10,7 +10,7 @@
 
 | 产物 | 说明 |
 |------|------|
-| `compare_10s.mp4` | 10 秒原片 vs 滤镜并排（Step 5） |
+| `compare_10s.mp4` | 10 秒原片 vs 滤镜并排（Step 5）/docs/video |
 | go2rtc `test` / `test_blue` | 浏览器原流 vs YOLO 滤镜流 |
 | go2rtc `test_blue_hsv` | HSV 滤镜流（可选对比） |
 
